@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 
@@ -19,7 +20,14 @@ import (
 var userCollection *mongo.Collection = database.OpenCollection(database.Client, "user")
 var validate = validator.New()
 
-func Hashpassword() {}
+func Hashpassword(password string) (hash []byte) {
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	if err != nil {
+		log.Panic(err)
+	}
+	return hash
+}
 
 func VerifyPassword(givenPassword string, actualPassword string) (bool, string) {
 	err := bcrypt.CompareHashAndPassword([]byte(actualPassword), []byte(givenPassword))
@@ -49,6 +57,8 @@ func Signup() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		password := string(Hashpassword(*user.Password))
+		user.Password = &password
 		if count != 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Email already registered!"})
 			return
@@ -84,7 +94,17 @@ func Signin() gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
-		passwordIsValid, msg := VerifyPassword(*user.Password, *foundUser.Password)
+		passwordIsValid, _ := VerifyPassword(*user.Password, *foundUser.Password)
+		if passwordIsValid != true {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Incorrect password"})
+		}
+		token, ref_token, err := helpers.GenerateAllTokens(*foundUser.Email, *foundUser.First_name, *foundUser.Last_name, *foundUser.User_type, foundUser.User_id)
+		helpers.RefereshAllTokens(token, ref_token, foundUser.User_id)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		userCollection.FindOne(ctx, bson.M{"email": user.Email}).Decode(&foundUser)
+		c.JSON(http.StatusOK, foundUser)
 
 	}
 }
